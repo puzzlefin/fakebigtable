@@ -1,0 +1,9 @@
+.idea
+.swp
+db
+__pycache__/
+venv/
+build/
+.mypy-results/
+.coverage
+html_cover/
