@@ -27,7 +27,7 @@ def test_bigtable_operations():
     # Perform operations on table
 ```
 
-## Usage with uniitest
+## Usage with unittest
 
 ```python
 
