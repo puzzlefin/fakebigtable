@@ -1,7 +1,6 @@
 import pytest
 import os
 
-from google.api_core.retry import Retry
 from google.cloud import bigtable
 from google.cloud.bigtable.instance import Instance
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
