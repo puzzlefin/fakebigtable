@@ -1,6 +1,6 @@
 # FakeBigtableClient
 
-A mock implementation of Google Cloud Bigtable client for testing.
+A mock implementation of Google Cloud Bigtable client for testing for when the overhead of using the emulator is too much for a small project.
 
 ## Install
 
