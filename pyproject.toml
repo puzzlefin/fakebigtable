@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fakebigtable"
-version = "0.1.0"
+version = "0.1.1"
 description = "Fakes bigtable ops for tests"
 authors = ["erik aronesty <erik@q32.com>"]
 license = "MIT"
