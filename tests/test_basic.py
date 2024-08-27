@@ -5,7 +5,7 @@ from google.cloud import bigtable
 from google.cloud.bigtable.instance import Instance
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 from google.cloud.bigtable.row import DirectRow
-from google.cloud.bigtable.row_filters import RowKeyRegexFilter
+from google.cloud.bigtable.row_filters import RowKeyRegexFilter, CellsColumnLimitFilter
 from google.cloud.bigtable.table import Table
 
 from fakebigtable import FakeBigtableClient
@@ -13,7 +13,7 @@ from fakebigtable import FakeBigtableClient
 
 @pytest.fixture(scope="session")
 def real_bigtable_instance():
-    if not "BIGTABLE_EMULATOR_HOST" in os.environ:
+    if "BIGTABLE_EMULATOR_HOST" not in os.environ:
         os.environ["BIGTABLE_EMULATOR_HOST"] = "localhost:9035"
 
     client = bigtable.Client(project="your-project-id", admin=True)
@@ -51,13 +51,23 @@ def test_bigtable_operations(bigtable_instance: Instance):
     read_row = table.read_row(test_key)
     assert read_row.cell_value(cf_id, b"col1") == test_value
 
+    assert read_row.cell_value(cf_id, b"col1") == test_value
+
     # Test reading with a filter
-    filter_ = RowKeyRegexFilter('^test_.*')
+    filter_ = RowKeyRegexFilter("^test_.*")
     filtered_rows = list(table.read_rows(filter_=filter_))
 
     assert len(filtered_rows) == 1
     assert filtered_rows[0].row_key == test_key
     assert filtered_rows[0].cell_value(cf_id, b"col1") == test_value
+
+    filter_ = CellsColumnLimitFilter(0)
+    filtered_row = table.read_row(test_key, filter_=filter_)
+    assert filtered_row is None
+
+    filter_ = CellsColumnLimitFilter(2)
+    filtered_row = table.read_row(test_key, filter_=filter_)
+    assert filtered_row.cell_value(cf_id, b"col1") == test_value
 
     # Test deletion
     row.delete()

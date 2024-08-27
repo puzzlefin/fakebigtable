@@ -2,12 +2,15 @@ import time
 from typing import Dict, Generator, Optional
 import re
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
+from google.cloud.bigtable.row_filters import CellsColumnLimitFilter
+from google.cloud.bigtable.row_set import RowSet
 
 
 class FakeStatus:
     def __init__(self, code: int, message: str):
         self.code = code
         self.message = message
+
 
 class FakeColumnFamily:
     def __init__(self, family_name: str, gc_rule):
@@ -22,18 +25,37 @@ class FakeCell:
 
 
 class FakeRow:
-    def __init__(self, key: bytes, table: 'FakeBigtableTable'):
+    def __init__(self, key: bytes, table: "FakeBigtableTable"):
         self.row_key = key
         self.table = table
         self.cells = {}
         self.pending_cells = {}
 
-    def set_cell(self, column_family_id: bytes, column: bytes, value: bytes, timestamp: float = None) -> None:
-        self.pending_cells.setdefault((column_family_id, column), []).append(FakeCell(value, timestamp))
+    def set_cell(
+        self,
+        column_family_id: bytes,
+        column: bytes,
+        value: bytes,
+        timestamp: float = None,
+    ) -> None:
+        self.pending_cells.setdefault((column_family_id, column), []).append(
+            FakeCell(value, timestamp)
+        )
 
     def cell_value(self, column_family_id: bytes, column: bytes) -> Optional[bytes]:
         cells = self.cells.get((column_family_id, column), [])
         return cells[-1].value if cells else None
+
+    def apply_cell_limit(self, num_cells: int | None) -> None:
+        if num_cells is not None:
+            for key, cell_list in self.cells.items():
+                self.cells[key] = cell_list[:num_cells]
+
+    def _is_empty(self) -> bool:
+        for cells in self.cells.values():
+            if cells:
+                return False
+        return True
 
     def delete(self) -> None:
         self.pending_cells.clear()
@@ -41,7 +63,6 @@ class FakeRow:
 
     def commit(self) -> None:
         for key, new_cells in list(self.pending_cells.items()):
-
             try:
                 gc_rule = self.table.column_families[key[0]].gc_rule
             except KeyError:
@@ -52,7 +73,7 @@ class FakeRow:
             existing_cells.extend(new_cells)
 
             if isinstance(gc_rule, MaxVersionsGCRule):
-                del existing_cells[:-gc_rule.max_num_versions]
+                del existing_cells[: -gc_rule.max_num_versions]
 
         self.pending_cells.clear()
 
@@ -60,6 +81,11 @@ class FakeRow:
         if not self.cells:
             self.table.rows.pop(self.row_key, None)
         return FakeStatus(0, "OK")
+
+    def _copy(self):
+        row = FakeRow(self.row_key, self.table)
+        row.cells = self.cells.copy()
+        return row
 
 
 class FakeBigtableTable:
@@ -86,17 +112,53 @@ class FakeBigtableTable:
             self.rows[key] = FakeRow(key, self)
         return self.rows[key]
 
-    def read_row(self, key: bytes) -> Optional[FakeRow]:
-        row = self.rows.get(key)
-        if row and row.cells:
-            return row
+    def read_row(self, key: bytes, filter_=None) -> Optional[FakeRow]:
+        row_set = RowSet()
+        row_set.add_row_key(key)
+        result_iter = iter(self.read_rows(filter_=filter_, row_set=row_set))
+        row = next(result_iter, None)
+        if next(result_iter, None) is not None:
+            raise ValueError("More than one row was returned.")
+        return row
 
-    def read_rows(self, filter_=None) -> Generator[FakeRow, None, None]:
+    def read_rows(
+        self,
+        start_key=None,
+        end_key=None,
+        limit=None,
+        filter_=None,
+        end_inclusive=False,
+        row_set=None,
+        retry=None,
+    ) -> Generator[FakeRow, None, None]:
         if filter_:
-            rex = re.compile(filter_.regex.decode())
+            rex = None
+            if hasattr(filter_, "regex"):
+                rex = re.compile(filter_.regex.decode())
+
+            num_cells = None
+            if isinstance(filter_, CellsColumnLimitFilter):
+                num_cells = filter_.num_cells
+
             for key in sorted(self.rows):
-                if rex.match(key.decode()):
-                    yield self.rows[key]
+                if start_key is not None and key < start_key:
+                    continue
+                if end_key is not None and key > end_key:
+                    continue
+                if end_key is not None and not end_inclusive and key == end_key:
+                    continue
+                if row_set is not None and key not in row_set.row_keys:
+                    continue
+                if limit is not None and limit <= 0:
+                    break
+                if rex is None or rex.match(key.decode()):
+                    row = self.rows[key]._copy()
+                    row.apply_cell_limit(num_cells)
+                    if row._is_empty():
+                        continue
+                    yield row
+                    if limit is not None:
+                        limit -= 1
         else:
             for row in self.rows.values():
                 yield row
@@ -114,7 +176,9 @@ class FakeBigtableTable:
     def exists(self) -> bool:
         return self._exists
 
-    def create(self, column_families: Optional[Dict[str, 'MaxVersionsGCRule']] = {}) -> None:
+    def create(
+        self, column_families: Optional[Dict[str, "MaxVersionsGCRule"]] = {}
+    ) -> None:
         """Simulates creating a Bigtable table with specified column families."""
         if column_families:
             for family_name, gc_rule in column_families.items():
@@ -159,7 +223,7 @@ class FakeBigtableClient:
         self.admin = admin
         self.instances = {}
 
-    def instance(self, instance_id: str) -> 'FakeBigtableInstance':
+    def instance(self, instance_id: str) -> "FakeBigtableInstance":
         if instance_id not in self.instances:
             self.instances[instance_id] = FakeBigtableInstance(instance_id)
         return self.instances[instance_id]
