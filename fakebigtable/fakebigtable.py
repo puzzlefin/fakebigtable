@@ -51,11 +51,11 @@ class FakeRow:
             for key, cell_list in self.cells.items():
                 self.cells[key] = cell_list[:num_cells]
 
-    def _is_empty(self) -> bool:
+    def _has_cells(self) -> bool:
         for cells in self.cells.values():
             if cells:
-                return False
-        return True
+                return True
+        return False
 
     def delete(self) -> None:
         self.pending_cells.clear()
@@ -131,37 +131,33 @@ class FakeBigtableTable:
         row_set=None,
         retry=None,
     ) -> Generator[FakeRow, None, None]:
-        if filter_:
-            rex = None
-            if hasattr(filter_, "regex"):
-                rex = re.compile(filter_.regex.decode())
+        rex = None
+        if hasattr(filter_, "regex"):
+            rex = re.compile(filter_.regex.decode())
 
-            num_cells = None
-            if isinstance(filter_, CellsColumnLimitFilter):
-                num_cells = filter_.num_cells
+        num_cells = None
+        if isinstance(filter_, CellsColumnLimitFilter):
+            num_cells = filter_.num_cells
 
-            for key in sorted(self.rows):
-                if start_key is not None and key < start_key:
+        for key in sorted(self.rows):
+            if start_key is not None and key < start_key:
+                continue
+            if end_key is not None and key > end_key:
+                continue
+            if end_key is not None and not end_inclusive and key == end_key:
+                continue
+            if row_set is not None and key not in row_set.row_keys:
+                continue
+            if limit is not None and limit <= 0:
+                break
+            if rex is None or rex.match(key.decode()):
+                row = self.rows[key]._copy()
+                row.apply_cell_limit(num_cells)
+                if not row._has_cells():
                     continue
-                if end_key is not None and key > end_key:
-                    continue
-                if end_key is not None and not end_inclusive and key == end_key:
-                    continue
-                if row_set is not None and key not in row_set.row_keys:
-                    continue
-                if limit is not None and limit <= 0:
-                    break
-                if rex is None or rex.match(key.decode()):
-                    row = self.rows[key]._copy()
-                    row.apply_cell_limit(num_cells)
-                    if row._is_empty():
-                        continue
-                    yield row
-                    if limit is not None:
-                        limit -= 1
-        else:
-            for row in self.rows.values():
                 yield row
+                if limit is not None:
+                    limit -= 1
 
     @staticmethod
     def mutate_rows(rows: list[FakeRow], retry: bool = True) -> None:
