@@ -1,6 +1,7 @@
-# FakeBigtableClient
+# fakebigtable
 
-A mock implementation of Google Cloud Bigtable client for testing.
+A mock implementation of Google Cloud Bigtable client for testing for when the overhead of using the emulator is too much for a small project.
+Unit tests are written to prove emulator parity.   We use the emulator so you don't have to.
 
 ## Install
 
@@ -26,7 +27,7 @@ def test_bigtable_operations():
     # Perform operations on table
 ```
 
-## Usage with uniitest
+## Usage with unittest
 
 ```python
 
