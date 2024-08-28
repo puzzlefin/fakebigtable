@@ -133,7 +133,7 @@ class FakeBigtableTable:
     ) -> Generator[FakeRow, None, None]:
         rex = None
         if hasattr(filter_, "regex"):
-            rex = re.compile(filter_.regex.decode())
+            rex = re.compile(filter_.regex)
 
         num_cells = None
         if isinstance(filter_, CellsColumnLimitFilter):
@@ -150,7 +150,7 @@ class FakeBigtableTable:
                 continue
             if limit is not None and limit <= 0:
                 break
-            if rex is None or rex.match(key.decode()):
+            if rex is None or rex.match(key):
                 row = self.rows[key]._copy()
                 row.apply_cell_limit(num_cells)
                 if not row._has_cells():
