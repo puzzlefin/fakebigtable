@@ -61,6 +61,16 @@ def test_bigtable_operations(bigtable_instance: Instance):
     assert filtered_rows[0].row_key == test_key
     assert filtered_rows[0].cell_value(cf_id, b"col1") == test_value
 
+    filtered_rows = list(
+        table.read_rows(start_key=test_key, end_key=test_key + b"\xff")
+    )
+    assert len(filtered_rows) == 1
+
+    filtered_rows = list(
+        table.read_rows(start_key=test_key + b"xx", end_key=test_key + b"\xff")
+    )
+    assert len(filtered_rows) == 0
+
     filter_ = CellsColumnLimitFilter(0)
     filtered_row = table.read_row(test_key, filter_=filter_)
     assert filtered_row is None
