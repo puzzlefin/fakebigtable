@@ -13,9 +13,13 @@ class FakeStatus:
 
 
 class FakeColumnFamily:
-    def __init__(self, family_name: str, gc_rule):
+    def __init__(self, table, family_name: str, gc_rule=None):
         self.family_name = family_name
         self.gc_rule = gc_rule
+        self.table = table
+
+    def create(self):
+        self.table.create_column_family(self.family_name, self.gc_rule)
 
 
 class FakeCell:
@@ -94,10 +98,13 @@ class FakeBigtableTable:
         self.rows: Dict[bytes, FakeRow] = {}
         self.column_families: Dict[bytes, FakeColumnFamily] = {}
 
+    def column_family(self, family_name: bytes):
+        return FakeColumnFamily(self, family_name)
+
     def create_column_family(self, family_name: bytes, gc_rule) -> None:
         if family_name in self.column_families:
             raise ValueError(f"Column family '{family_name}' already exists.")
-        self.column_families[family_name] = FakeColumnFamily(family_name, gc_rule)
+        self.column_families[family_name] = FakeColumnFamily(self, family_name, gc_rule)
 
     def delete_column_family(self, family_name: bytes) -> None:
         if family_name not in self.column_families:
@@ -213,11 +220,14 @@ class FakeBigtableInstance:
         self.tables.clear()
 
 
+g_instances = {}
+
+
 class FakeBigtableClient:
     def __init__(self, project: str, admin: bool = False):
         self.project = project
         self.admin = admin
-        self.instances = {}
+        self.instances = g_instances
 
     def instance(self, instance_id: str) -> "FakeBigtableInstance":
         if instance_id not in self.instances:

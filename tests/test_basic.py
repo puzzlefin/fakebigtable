@@ -11,23 +11,19 @@ from google.cloud.bigtable.table import Table
 from fakebigtable import FakeBigtableClient
 
 
-@pytest.fixture(scope="session")
 def real_bigtable_instance():
     if "BIGTABLE_EMULATOR_HOST" not in os.environ:
         os.environ["BIGTABLE_EMULATOR_HOST"] = "localhost:9035"
 
     client = bigtable.Client(project="your-project-id", admin=True)
     instance = client.instance("test-instance")
+    return instance
 
-    yield instance
 
-
-@pytest.fixture(scope="session")
 def fake_bigtable_instance():
-    client = FakeBigtableClient(project="test-project", admin=True)
+    client = FakeBigtableClient(project="your-project-id", admin=True)
     instance = client.instance("test-instance")
-
-    yield instance
+    return instance
 
 
 @pytest.mark.parametrize("bigtable_instance", ["real", "fake"], indirect=True)
@@ -86,15 +82,19 @@ def test_bigtable_operations(bigtable_instance: Instance):
     assert table.read_row(test_key) is None
 
 
-@pytest.fixture
-def bigtable_instance(request, real_bigtable_instance, fake_bigtable_instance):
+@pytest.fixture(params=["real", "fake"])
+def bigtable_connector(request):
     if request.param == "real":
         return real_bigtable_instance
     elif request.param == "fake":
         return fake_bigtable_instance
 
 
-@pytest.mark.parametrize("bigtable_instance", ["real", "fake"], indirect=True)
+@pytest.fixture
+def bigtable_instance(request, bigtable_connector):
+    return bigtable_connector()
+
+
 def test_non_existent_column_family_behavior(bigtable_instance: Instance):
     table: Table = bigtable_instance.table("test-table")
     if table.exists():
@@ -112,7 +112,30 @@ def test_non_existent_column_family_behavior(bigtable_instance: Instance):
     assert table.read_row(b"test_key") is None
 
 
-@pytest.mark.parametrize("bigtable_instance", ["real", "fake"], indirect=True)
+def test_global(bigtable_instance, bigtable_connector):
+    table = bigtable_instance.table("test-table")
+    if table.exists():
+        table.delete()
+    table.create(column_families={"cf1": MaxVersionsGCRule(1)})
+    row1 = table.direct_row(b"boof")
+    row1.set_cell("cf1", b"col1", b"value1")
+    row1.commit()
+    assert table.read_row(b"boof").cell_value("cf1", b"col1") == b"value1"
+    table = bigtable_connector().table("test-table")
+    assert table.read_row(b"boof").cell_value("cf1", b"col1") == b"value1"
+
+
+def test_alt_create(bigtable_instance):
+    table = bigtable_instance.table("test-table")
+    if table.exists():
+        table.delete()
+    table.create()
+    column_family = table.column_family(b"yo")
+    column_family.create()
+    row1 = table.direct_row(b"boof")
+    row1.set_cell("yo", b"col1", b"value1")
+
+
 def test_row_key_collision(bigtable_instance):
     table = bigtable_instance.table("test-table")
     if table.exists():
